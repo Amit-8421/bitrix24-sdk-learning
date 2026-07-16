@@ -1,0 +1,209 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * This file is part of the bitrix24-php-sdk package.
+ *
+ * © Maksim Mesilov <mesilov.maxim@gmail.com>
+ *
+ * For the full copyright and license information, please view the MIT-LICENSE.txt
+ * file that was distributed with this source code.
+ */
+
+use Bitrix24\SDK\Attributes\Services\AttributesParser;
+use Bitrix24\SDK\Deprecations\DeprecatedMethods;
+use Bitrix24\SDK\CodeGenerator\ItemBuilderCodeGenerator;
+use Bitrix24\SDK\CodeGenerator\ResultItemCodeGenerator;
+use Bitrix24\SDK\Infrastructure\Console\Commands\Generator\ApiEndpointDocumentationUrlResolver;
+use Bitrix24\SDK\Infrastructure\Console\Commands\Generator\BranchIssueIdResolver;
+use Bitrix24\SDK\Infrastructure\Console\Commands\Generator\GenerateItemBuilderCommand;
+use Bitrix24\SDK\Infrastructure\Console\Commands\Generator\GenerateSelectBuilderCommand;
+use Bitrix24\SDK\Infrastructure\Console\Commands\Generator\ResultItemGeneratorCommand;
+use Bitrix24\SDK\Infrastructure\Console\Commands\Metadata\Bitrix24MethodResultFetcher;
+use Bitrix24\SDK\Infrastructure\Console\Commands\Metadata\Bitrix24V3FieldMetadataFetcher;
+use Bitrix24\SDK\Infrastructure\Console\Commands\Metadata\DevWebhookResolver;
+use Bitrix24\SDK\Infrastructure\Console\Commands\Metadata\ShowV3FieldMetadataCommand;
+use Bitrix24\SDK\Infrastructure\Console\Commands\ShowFieldsDescriptionCommand;
+use Bitrix24\SDK\OpenApi\Domain\OaFieldListMethodResolver;
+use Bitrix24\SDK\OpenApi\Domain\OpenApiSchemaEntityReader;
+use Bitrix24\SDK\OpenApi\Domain\OaSchemaMethodReader;
+use Bitrix24\SDK\OpenApi\Domain\OaSdkCoverageCalculator;
+use Bitrix24\SDK\OpenApi\Domain\OaToSdkMethodNormalizationPolicy;
+use Bitrix24\SDK\OpenApi\Domain\ResultItem\Provider\OpenApiResultItemPayloadProvider;
+use Bitrix24\SDK\OpenApi\Domain\ResultItem\Provider\RestDocsResultItemPayloadProvider;
+use Bitrix24\SDK\OpenApi\Domain\ResultItem\Payload\ResultItemPayloadBuilder;
+use Bitrix24\SDK\OpenApi\Domain\ResultItem\Payload\ResultItemPayloadSerializer;
+use Bitrix24\SDK\OpenApi\Domain\ResultItem\Verification\ResultItemPayloadVerifier;
+use Bitrix24\SDK\OpenApi\Domain\ResultItem\PhpDoc\ResultItemPhpDocTypeResolver;
+use Bitrix24\SDK\OpenApi\Domain\ResultItem\Path\ResultItemTaskPathResolver;
+use Bitrix24\SDK\OpenApi\Domain\ResultItem\Verification\ResultItemVerificationApplier;
+use Bitrix24\SDK\OpenApi\Domain\ResultItem\Verification\ResultItemVerificationReportSerializer;
+use Bitrix24\SDK\CodeGenerator\SelectBuilderCodeGenerator;
+use Bitrix24\SDK\OpenApi\Infrastructure\Console\SchemaBuilder;
+use Bitrix24\SDK\Services\ServiceBuilderFactory;
+use Bitrix24\SDK\Tools\Commands\CopyPropertyValues;
+use Bitrix24\SDK\Tools\Commands\GenerateContactsCommand;
+use Bitrix24\SDK\Infrastructure\Console\Commands;
+use Bitrix24\SDK\Tools\Commands\PerformanceBenchmarks\ListCommand;
+use Monolog\Handler\StreamHandler;
+use Monolog\Logger;
+use Monolog\Processor\MemoryUsageProcessor;
+use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Input\ArgvInput;
+use Symfony\Component\Dotenv\Dotenv;
+use Symfony\Component\ErrorHandler\Debug;
+use Symfony\Component\EventDispatcher\EventDispatcher;
+use Typhoon\Reflection\TyphoonReflector;
+
+if (!in_array(PHP_SAPI, ['cli', 'phpdbg', 'embed'], true)) {
+    echo 'Warning: The console should be invoked via the CLI version of PHP, not the ' . PHP_SAPI . ' SAPI' . PHP_EOL;
+}
+
+set_time_limit(0);
+
+require dirname(__DIR__) . '/vendor/autoload.php';
+
+if (!class_exists(Dotenv::class)) {
+    throw new LogicException('You need to add "symfony/dotenv" as Composer dependencies.');
+}
+
+$input = new ArgvInput();
+if (null !== $env = $input->getParameterOption(['--env', '-e'], null, true)) {
+    putenv('APP_ENV=' . $_SERVER['APP_ENV'] = $_ENV['APP_ENV'] = $env);
+}
+
+if ($input->hasParameterOption('--no-debug', true)) {
+    putenv('APP_DEBUG=' . $_SERVER['APP_DEBUG'] = $_ENV['APP_DEBUG'] = '0');
+}
+
+(new Dotenv())->bootEnv(dirname(__DIR__) . '/.env');
+
+if ($_SERVER['APP_DEBUG']) {
+    umask(0000);
+
+    if (class_exists(
+        Debug::class
+    )) {
+        Debug::enable();
+    }
+}
+
+$log = new Logger('bitrix24-php-sdk-cli');
+$log->pushHandler(new StreamHandler($_ENV['LOGS_FILE'], (int)$_ENV['LOGS_LEVEL']));
+$log->pushProcessor(new MemoryUsageProcessor(true, true));
+
+$filesystem = new Symfony\Component\Filesystem\Filesystem();
+$attributesParser = new AttributesParser(TyphoonReflector::build(), new Symfony\Component\Filesystem\Filesystem());
+
+$application = new Application();
+$application->addCommand(new SchemaBuilder(new Symfony\Component\Filesystem\Filesystem(), new Commands\SplashScreen(), $log));
+$application->addCommand(new GenerateContactsCommand($log));
+$application->addCommand(new ListCommand($log));
+$application->addCommand(
+    new ShowFieldsDescriptionCommand(
+        new Commands\SplashScreen(),
+        $log
+    )
+);
+$application->addCommand(
+    new ShowV3FieldMetadataCommand(
+        new OaFieldListMethodResolver(
+            new OaSchemaMethodReader(
+                new Symfony\Component\Filesystem\Filesystem(),
+                new OaToSdkMethodNormalizationPolicy()
+            )
+        ),
+        new DevWebhookResolver(),
+        new Bitrix24V3FieldMetadataFetcher($log)
+    )
+);
+$application->addCommand(
+    new GenerateSelectBuilderCommand(
+        new OpenApiSchemaEntityReader(new Symfony\Component\Filesystem\Filesystem()),
+        new SelectBuilderCodeGenerator(),
+        new Symfony\Component\Filesystem\Filesystem()
+    )
+);
+$application->addCommand(
+    new GenerateItemBuilderCommand(
+        new OpenApiSchemaEntityReader(new Symfony\Component\Filesystem\Filesystem()),
+        new ItemBuilderCodeGenerator(),
+        new Symfony\Component\Filesystem\Filesystem()
+    )
+);
+$application->addCommand(
+    new ResultItemGeneratorCommand(
+        new BranchIssueIdResolver(),
+        new ResultItemTaskPathResolver(),
+        ResultItemGeneratorCommand::createDefaultWorkflow(
+            new OpenApiResultItemPayloadProvider(
+                new OpenApiSchemaEntityReader($filesystem),
+                new ResultItemPhpDocTypeResolver(),
+            ),
+            new RestDocsResultItemPayloadProvider(new ResultItemPhpDocTypeResolver()),
+            new ResultItemPayloadBuilder(),
+            new ResultItemPayloadSerializer(),
+            new ResultItemPayloadVerifier(
+                new Bitrix24MethodResultFetcher($log),
+                new ResultItemPhpDocTypeResolver(),
+            ),
+            new ResultItemVerificationReportSerializer(),
+            new ResultItemVerificationApplier(new ResultItemPhpDocTypeResolver()),
+            new ResultItemCodeGenerator(),
+            new ApiEndpointDocumentationUrlResolver(new Symfony\Component\Finder\Finder()),
+            new DevWebhookResolver(),
+            $filesystem,
+        ),
+    )
+);
+$application->addCommand(new CopyPropertyValues($log));
+$application->addCommand(
+    new Commands\Documentation\GenerateCoverageDocumentationCommand(
+        $attributesParser,
+        new ServiceBuilderFactory(new EventDispatcher(), $log),
+        new Symfony\Component\Finder\Finder(),
+        new Symfony\Component\Filesystem\Filesystem(),
+        $log
+    )
+);
+$application->addCommand(
+    new Commands\Documentation\GenerateExamplesForDocumentationCommand(
+        TyphoonReflector::build(),
+        $attributesParser,
+        new Symfony\Component\Filesystem\Filesystem(),
+        $log
+    )
+);
+$application->addCommand(
+    new Commands\Documentation\ShowCoverageStatisticsCommand(
+        $attributesParser,
+        new ServiceBuilderFactory(new EventDispatcher(), $log),
+        new Symfony\Component\Finder\Finder(),
+        new Commands\SplashScreen(),
+        new DeprecatedMethods(),
+        $log
+    )
+);
+$application->addCommand(
+    new Commands\Documentation\ShowOaSdkCoverageCommand(
+        $attributesParser,
+        new OaSchemaMethodReader(
+            new Symfony\Component\Filesystem\Filesystem(),
+            new OaToSdkMethodNormalizationPolicy()
+        ),
+        new OaSdkCoverageCalculator(new OaToSdkMethodNormalizationPolicy()),
+        new OaToSdkMethodNormalizationPolicy(),
+        new Symfony\Component\Finder\Finder(),
+        $log
+    )
+);
+$application->addCommand(
+    new Commands\Documentation\ShowV3BuilderCoverageCommand(
+        new \Bitrix24\SDK\OpenApi\Domain\V3BuilderCoverageAuditor(
+            new OpenApiSchemaEntityReader(new Symfony\Component\Filesystem\Filesystem())
+        ),
+        new Symfony\Component\Finder\Finder(),
+        $log
+    )
+);
+$application->run($input);
