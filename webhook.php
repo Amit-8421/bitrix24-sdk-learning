@@ -10,7 +10,7 @@ $data = [
     ]
 ];
 
-$ch = curl_init($webhook . 'crm.deal.add.json');
+$ch = curl_init($webhook . 'crm.contact.add.json');
 
 curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
