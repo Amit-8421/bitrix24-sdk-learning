@@ -1,10 +1,8 @@
 <?php
 
-http_response_code(200);
-
 file_put_contents(
-    __DIR__ . '/request.txt',
-    print_r($_REQUEST, true),
+    __DIR__ . "/hit.txt",
+    "Webhook Hit - " . date("Y-m-d H:i:s") . PHP_EOL,
     FILE_APPEND
 );
 
