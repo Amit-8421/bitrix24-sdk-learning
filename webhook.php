@@ -1,8 +1,6 @@
 <?php
 
-error_log("Webhook Received");
-error_log(json_encode($_POST));
+header('Content-Type: text/plain');
 
-echo "OK";
-
-echo "OK";
+echo "Webhook Working";
+error_log("Webhook hit");
