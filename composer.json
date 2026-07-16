@@ -26,6 +26,8 @@
   },
   "require": {
     "php": "8.4.* || 8.5.*",
+    "ext-bcmath": "*",
+
     "ext-curl": "*",
     "ext-intl": "*",
     "ext-json": "*",
