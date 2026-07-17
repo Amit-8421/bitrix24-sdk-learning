@@ -9,8 +9,9 @@ $data = [
 
 file_put_contents(
     __DIR__ . '/request.txt',
-    print_r($data, true) . PHP_EOL . str_repeat('-', 80) . PHP_EOL,
+    print_r($data, true) . PHP_EOL .
+    str_repeat('-', 80) . PHP_EOL,
     FILE_APPEND
 );
 
-echo "OK3";
+echo "OK";
