@@ -6,23 +6,39 @@ require __DIR__ . '/vendor/autoload.php';
 
 use Bitrix24\SDK\Services\ServiceBuilderFactory;
 
-$config = require 'config.php';
+$config = require __DIR__ . '/config.php';
 
-$leadId = (int)$_POST['data']['FIELDS']['ID'];
+$leadId = intval($_POST['data']['FIELDS']['ID'] ?? 0);
 
-$b24 = ServiceBuilderFactory::createServiceBuilderFromWebhook(
-    $config['bitrix_webhook']
-);
+if ($leadId === 0) {
+    exit('No Lead ID');
+}
 
-$response = $b24->core->call('crm.lead.get', [
-    'id' => $leadId
-]);
+try {
 
-$lead = $response->getResponseData()->getResult();
+    $b24 = ServiceBuilderFactory::createServiceBuilderFromWebhook(
+        $config['bitrix_webhook']
+    );
 
-file_put_contents(
-    __DIR__ . '/lead.txt',
-    print_r($lead, true)
-);
+    $response = $b24->core->call('crm.lead.get', [
+        'id' => $leadId
+    ]);
 
-echo "OK";
+    $lead = $response->getResponseData()->getResult();
+
+    file_put_contents(
+        __DIR__ . '/lead.txt',
+        print_r($lead, true)
+    );
+
+    echo "OK";
+
+} catch (\Throwable $e) {
+
+    file_put_contents(
+        __DIR__ . '/error.txt',
+        $e->getMessage()
+    );
+
+    echo "ERROR";
+}
