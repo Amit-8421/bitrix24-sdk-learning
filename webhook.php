@@ -1,11 +1,34 @@
 <?php
 
-echo "<pre>";
-print_r($_POST);
+require 'vendor/autoload.php';
 
-file_put_contents(
-    __DIR__ . '/debug.txt',
-    print_r($_POST, true)
+$config = require 'config.php';
+
+use Bitrix24\SDK\Services\ServiceBuilderFactory;
+
+$serviceBuilder = ServiceBuilderFactory::createServiceBuilderFromWebhook(
+    $config['bitrix_webhook']
 );
 
-exit;
+// Lead create hui ya nahi
+$leadId = $_POST['data']['FIELDS']['ID'] ?? 0;
+
+if (!$leadId) {
+    exit("No Lead ID");
+}
+
+// Dummy Contact Create
+$result = $serviceBuilder
+    ->getCRMScope()
+    ->contact()
+    ->add([
+        'NAME' => 'Webhook Test',
+        'PHONE' => [
+            [
+                'VALUE' => '9999999999',
+                'VALUE_TYPE' => 'WORK'
+            ]
+        ]
+    ]);
+
+echo "Contact Created";
