@@ -6,4 +6,4 @@ file_put_contents(
     FILE_APPEND
 );
 
-echo "OK";
+echo "OK2";
